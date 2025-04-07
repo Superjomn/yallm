@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Optional
 import torch
 
 if TYPE_CHECKING:
-    from yallm.memory.memory_pool import ReqToTokenPool
+    from doomllm.layers.attention.attn_backend import AttentionBackend
+    from doomllm.memory.memory_pool import ReqToTokenPool
 
 # Referenced much idea from sglang's forward_batch_info.py
 
@@ -60,3 +61,6 @@ class Batch:
 
     # the indices of the requests in the req_to_token_pool
     req_pool_indices: Optional[torch.Tensor] = None
+
+    # the attention backend
+    attn_backend: Optional[AttentionBackend] = None
