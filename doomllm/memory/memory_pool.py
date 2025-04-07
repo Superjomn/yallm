@@ -27,6 +27,16 @@ class ReqToTokenPool:
         self._free_slots = list(range(size))
         self._map = torch.zeros((size, max_seq_len), dtype=torch.int32, device=device)
 
+    def get_page_table(self, indices: list[int], max_seq_len: int) -> torch.Tensor:
+        """
+        Get the page table for a given request.
+
+        Args:
+            indices: the table indices of the requests.
+            max_seq_len: the maximum sequence length.
+        """
+        return self._map[indices, :max_seq_len]
+
     def update(
         self,
         indices: list[int],
@@ -84,6 +94,29 @@ class KVCacheInterface(abc.ABC):
     @abc.abstractmethod
     def get_kv_buffer(self, layer_id: int) -> torch.Tensor:
         pass
+
+    @abc.abstractmethod
+    def write_kv_buffer(
+        self,
+        layer_id: int,
+        loc: torch.Tensor,
+        cache_k: torch.Tensor,
+        cache_v: torch.Tensor,
+        k_scale: Optional[torch.Tensor] = None,
+        v_scale: Optional[torch.Tensor] = None,
+    ) -> None:
+        """
+        Write the KV buffer for a given layer.
+
+        Args:
+            layer_id: the layer id.
+            loc: the location of the KV buffer.
+            cache_k: the key buffer.
+            cache_v: the value buffer.
+            k_scale: the scale of the key buffer, used for quantization.
+            v_scale: the scale of the value buffer, used for quantization.
+        """
+        raise NotImplementedError
 
 
 class TokenToKVPoolAllocator:
@@ -179,6 +212,8 @@ class MHAToenToKvPool(KVCacheInterface):
         self.layer_num = layer_num
         self.device = device
 
+        self._create_buffers()
+
     def _create_buffers(self):
         # [size, head_num, head_dim] for each layer
         self._key_buffers = [
@@ -199,6 +234,10 @@ class MHAToenToKvPool(KVCacheInterface):
             )
             for _ in range(self.layer_num)
         ]
+
+    def _clear_buffers(self):
+        del self._key_buffers
+        del self._value_buffers
 
     def get_kv_size_bytes(self) -> tuple[int, int]:
         """
@@ -223,3 +262,29 @@ class MHAToenToKvPool(KVCacheInterface):
 
     def get_kv_buffer(self, layer_id: int) -> tuple[torch.Tensor, torch.Tensor]:
         return self.get_key_buffer(layer_id), self.get_value_buffer(layer_id)
+
+    def write_kv_buffer(
+        self,
+        layer_id: int,
+        loc: torch.Tensor,
+        cache_k: torch.Tensor,
+        cache_v: torch.Tensor,
+        k_scale: Optional[torch.Tensor] = None,
+        v_scale: Optional[torch.Tensor] = None,
+    ) -> None:
+        """
+        Write the KV buffer for a given layer.
+        """
+        if cache_k.dtype != self.dtype:
+            cache_k.div_(k_scale)
+        if cache_v.dtype != self.dtype:
+            cache_v.div_(v_scale)
+        cache_k = cache_k.to(self.dtype)
+        cache_v = cache_v.to(self.dtype)
+
+        if self.store_dtype != self.dtype:
+            cache_k = cache_k.view(self.store_dtype)
+            cache_v = cache_v.view(self.store_dtype)
+
+        self._key_buffers[layer_id][loc] = cache_k
+        self._value_buffers[layer_id][loc] = cache_v

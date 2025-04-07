@@ -3,9 +3,12 @@ The batch information.
 """
 from dataclasses import dataclass
 from enum import Enum, IntEnum, auto
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import torch
+
+if TYPE_CHECKING:
+    from yallm.memory.memory_pool import ReqToTokenPool
 
 # Referenced much idea from sglang's forward_batch_info.py
 
@@ -40,6 +43,8 @@ class Batch:
     The batch information.
     """
 
+    forward_mode: BatchMode
+
     batch_size: int
 
     input_ids: torch.Tensor
@@ -49,4 +54,9 @@ class Batch:
 
     # for extending
     extend_num_tokens: Optional[int] = None
-    extend_seq_lens: Optional[torch.Tensor] = None
+    extend_prefix_lens: Optional[torch.Tensor] = None
+
+    req_to_token_pool: Optional[ReqToTokenPool] = None
+
+    # the indices of the requests in the req_to_token_pool
+    req_pool_indices: Optional[torch.Tensor] = None
