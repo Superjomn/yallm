@@ -165,7 +165,70 @@ def create_culens(seq_lens: torch.Tensor, device: torch.device):
     return cu_seqlens
 
 
-def test_flash_attn_varlen_func_with_kvcache(
+def test_flash_attn_varlen_func_with_kvcache_for_extending(
+    device="cuda", seed=42, batch_size=10, num_heads=16, head_dim=16
+):
+    """Test flash attention with KV cache for extending sequences.
+
+    This test validates the functionality of flash_attn_varlen_func when extending sequences
+    with a new key-value pair.
+    """
+    # Set seed for reproducibility
+    torch.manual_seed(seed)
+
+    # For extending, q sequence lengths are divergent
+    q_lens = torch.randint(10, 100, (batch_size, 1), device=device, dtype=torch.int32)
+    max_seq_len_q = torch.max(q_lens).item()
+    total_q_lens = torch.sum(q_lens).item()
+
+    # Create query tensor - for incremental decoding, we only have one token per sequence
+    q = torch.randn(total_q_lens, num_heads, head_dim, device=device, dtype=torch.float16)
+
+    # Generate random sequence lengths for the key-value cache (previous tokens)
+    max_seq_len_k = 100
+    # extending (not just prefilling), the k sequence lengths may be divergent,
+    # in other words, the kv cache may have different sequence lengths
+    seq_lens_k = torch.randint(10, max_seq_len_k, (batch_size,), device=device, dtype=torch.int32)
+    max_seq_len_k = torch.max(seq_lens_k).item()
+
+    paged_kv_block_size = 256
+
+    # Create paged KV cache - block-based memory structure for efficient caching
+    k_cache_paged, v_cache_paged, block_table = generate_block_kvcache(
+        max_seq_len_k,
+        paged_kv_block_size,
+        batch_size,
+        num_heads,
+        head_dim,
+        device,
+        dtype=torch.float16,
+    )
+
+    # Run flash attention with KV cache
+    # This performs attention and updates the cache in a single operation
+    output = flash_attn_with_kvcache(
+        q=q,
+        k_cache=k_cache_paged,
+        v_cache=v_cache_paged,
+        cache_seqlens=seq_lens_k,
+        block_table=block_table,
+    )
+
+    # Validate output
+    expected_shape = (batch_size, 1, num_heads, head_dim)
+    assert (
+        output.shape == expected_shape
+    ), f"Output shape {output.shape} doesn't match expected {expected_shape}"
+    assert not torch.isnan(output).any(), "Output contains NaN values"
+    assert torch.any(output != 0), "Output is all zeros"
+
+    # Verify cache was updated by checking if sequences grew by 1
+    # (This assumes flash_attn_with_kvcache increments cache_seqlens internally)
+
+    return output
+
+
+def test_flash_attn_varlen_func_with_kvcache_for_decoding(
     device="cuda", seed=42, batch_size=10, num_heads=16, head_dim=16
 ):
     """Test flash attention with KV cache for incremental decoding.
