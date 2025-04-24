@@ -19,11 +19,15 @@ from torch import nn
 from transformers import AutoModelForCausalLM
 from transformers.utils import SAFE_WEIGHTS_INDEX_NAME
 
+from doomllm.configs.model_config import ModelConfig
+
 from .utils import (
     download_safetensors_index_file_from_hf,
     download_weights_from_hf,
     filter_duplicate_safetensors_files,
     filter_files_not_needed_for_inference,
+    pt_weights_iterator,
+    safetensors_weights_iterator,
     set_default_torch_dtype,
 )
 
@@ -37,14 +41,6 @@ class LoadFormat(StrEnum):
 class LoadConfig:
     load_format: LoadFormat
     download_dir: Optional[str] = None
-
-
-@dataclass
-class ModelConfig:
-    model_path: str
-    trust_remote_code: bool = True
-    revision: Optional[str] = None
-    dtype: str = "auto"
 
 
 @contextmanager
@@ -272,3 +268,16 @@ class DefaultModelLoader(BaseModelLoader):
                     with device_loading_context(module, target_device):
                         quant_method.process_weights_after_loading(module)
         return model.eval()
+
+
+def _initialize_model(
+    model_config: ModelConfig,
+    load_config: LoadConfig,
+) -> nn.Module:
+    """Initialize a model with the given configurations."""
+    model_class, _ = get_model_architecture(model_config)
+    quant_config = _get_quantization_config(model_config, load_config)
+    return model_class(
+        config=model_config.hf_config,
+        quant_config=quant_config,
+    )

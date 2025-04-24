@@ -3,12 +3,6 @@ import logging
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import torch
-from sglang.srt.model_executor.forward_batch_info import ForwardBatch
-from sglang.srt.model_loader.weight_utils import (
-    default_weight_loader,
-    kv_cache_scales_loader,
-    maybe_remap_kv_scale_name,
-)
 from sglang.srt.utils import add_prefix, make_layers
 from sglang.utils import get_exception_traceback
 from torch import nn
@@ -23,6 +17,8 @@ from doomllm.layers.quantization.base_config import QuantizationConfig
 from doomllm.layers.radix_attention import RadixAttention
 from doomllm.layers.rotary_embedding import get_rope
 from doomllm.layers.vocab_parallel_embedding import ParallelLMHead, VocabParallelEmbedding
+from doomllm.model_loader.loader import DefaultModelLoader
+from doomllm.scheduler.batch import Batch
 
 logger = logging.getLogger(__name__)
 
